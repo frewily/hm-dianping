@@ -15,8 +15,7 @@ import javax.annotation.Resource;
 
 import java.util.concurrent.TimeUnit;
 
-import static com.hmdp.utils.RedisConstants.CACHE_SHOP_KEY;
-import static com.hmdp.utils.RedisConstants.CACHE_SHOP_TTL;
+import static com.hmdp.utils.RedisConstants.*;
 
 /**
  * <p>
@@ -37,21 +36,29 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         String key = CACHE_SHOP_KEY + id;
         //1 从redis中查询店铺缓存
         String shopJson = stringRedisTemplate.opsForValue().get(key);
-        //2 判断是否存在
+        //2.1 判断是否存在
         if (StrUtil.isNotBlank(shopJson)) {
-            //3 存在，返回
+            //存在，返回
             Shop shop = JSONUtil.toBean(shopJson, Shop.class);
             return Result.ok(shop);
         }
-        //4 不存在，根据id查询数据库
+        //2.2 不存在，判断是否为空（下面shopJson就两种情况：null或空字符串）
+        if (shopJson != null) {//-->shopJson为空字符串,直接返回错误信息，不再查询数据库，避免缓存穿透
+            return Result.fail("店铺不存在");
+
+        }
+        //3 shopJson为null,不存在，根据id查询数据库
         Shop shop = getById(id);
-        //5 数据库不存在，返回404
+        //4 数据库中不存在，返回404
         if (shop == null) {
+            //4.1 将空值写入redis
+            stringRedisTemplate.opsForValue().set(key, "", CACHE_NULL_TTL, TimeUnit.MINUTES);
+            //4.2 返回错误信息
             return Result.fail("店铺不存在");
         }
-        //6 存在，写入redis
+        //5 存在，写入redis
         stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(shop), CACHE_SHOP_TTL, TimeUnit.MINUTES);
-        //7 返回
+        //6 返回
         return Result.ok(shop);
     }
 
