@@ -27,10 +27,27 @@ public class CacheClient {
         this.stringRedisTemplate = stringRedisTemplate;
     }
 
+    /**
+     * 将任意对象序列化后存储到Redis缓存中
+     *
+     * @param key   Redis缓存的键
+     * @param value 要缓存的对象值，会被序列化为JSON字符串
+     * @param time  缓存过期时间
+     * @param unit  时间单位
+     */
     public void set(String key, Object value, Long time, TimeUnit  unit){
         stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(value), time, unit);
     }
 
+    /**
+     * 将对象存储到Redis缓存中，并设置逻辑过期时间
+     * 用于实现缓存主动更新策略，避免缓存击穿
+     *
+     * @param key   Redis缓存的键
+     * @param value 要缓存的对象值
+     * @param time  逻辑过期时间
+     * @param unit  时间单位
+     */
     public void setWithLogicalExpire(String key, Object value, Long time, TimeUnit  unit){
         //设置逻辑过期时间
         RedisData redisData = new RedisData();
@@ -40,6 +57,20 @@ public class CacheClient {
         stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(redisData));
     }
 
+    /**
+     * 查询缓存，采用缓存空值策略解决缓存穿透问题
+     * 如果缓存命中则直接返回，否则查询数据库并将结果写入缓存
+     *
+     * @param keyPrefix 缓存键前缀
+     * @param id        查询ID
+     * @param type      返回对象的类型
+     * @param dbFallback 数据库查询回调函数
+     * @param time      缓存过期时间
+     * @param unit      时间单位
+     * @param <R>       返回类型
+     * @param <ID>      ID类型
+     * @return 查询结果，如果缓存和数据库中都不存在则返回null
+     */
     public <R ,ID> R queryWithPaaThrough(
             String keyPrefix, ID id, Class<R> type, Function<ID, R> dbFallback, Long time, TimeUnit unit){
         String key = keyPrefix + id;
@@ -73,6 +104,20 @@ public class CacheClient {
     //创建线程池
     private static final ExecutorService CACHE_REBUILD_EXECUTOR = Executors.newFixedThreadPool(10);
 
+    /**
+     * 查询缓存，采用逻辑过期策略解决缓存击穿问题
+     * 缓存命中后检查逻辑过期时间，如果已过期则通过互斥锁异步重建缓存
+     *
+     * @param keyPrefix  缓存键前缀
+     * @param id         查询ID
+     * @param type       返回对象的类型
+     * @param dbFallback 数据库查询回调函数
+     * @param time       缓存过期时间
+     * @param unit       时间单位
+     * @param <R>        返回类型
+     * @param <ID>       ID类型
+     * @return 查询结果，如果缓存不存在则返回null；如果缓存过期则返回旧数据并异步重建
+     */
     public <R ,ID> R queryWithLogicalExpire(
             String keyPrefix, ID id, Class<R> type, Function<ID, R> dbFallback, Long time, TimeUnit unit){
         String key = keyPrefix + id;
@@ -116,7 +161,12 @@ public class CacheClient {
         return r;
     }
 
-    //获取锁
+    /**
+     * 尝试获取Redis分布式锁
+     *
+     * @param key 锁的键
+     * @return 是否成功获取锁，true表示获取成功，false表示获取失败或异常
+     */
     private boolean tryLock(String key) {
         Boolean flag = stringRedisTemplate.opsForValue().setIfAbsent(key, "1", 10L, TimeUnit.SECONDS);
         /**
@@ -128,7 +178,11 @@ public class CacheClient {
         return BooleanUtil.isTrue(flag);// null 时返回 false
     }
 
-    //释放锁
+    /**
+     * 释放Redis分布式锁
+     *
+     * @param key 锁的键
+     */
     private void unLock(String key) {
         stringRedisTemplate.delete(key);
     }
