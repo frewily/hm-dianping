@@ -57,6 +57,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                 .update()                                     // ① 创建 UpdateWrapper 对象
                 .setSql("stock = stock - 1")                  // ② 设置更新的 SQL 片段
                 .eq("voucher_id", voucherId)          // ③ 设置 WHERE 条件
+                .gt("stock", 0)                   // ④ 乐观锁 库存>0就可以扣减库存
                 .update();                                    // ④ 真正执行 UPDATE 语句
         if (!success) {
             //扣减库存失败
