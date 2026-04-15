@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-global
 -- global redis, KEYS, ARGV
 
 --比较线程标示与锁中的标示是否一致
