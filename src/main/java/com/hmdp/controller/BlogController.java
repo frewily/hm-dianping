@@ -31,6 +31,13 @@ public class BlogController {
     private IBlogService blogService;
     @PostMapping
     public Result saveBlog(@RequestBody Blog blog) {
+        // 参数校验
+        if (blog.getShopId() == null) {
+            return Result.fail("商铺ID不能为空");
+        }
+        if (blog.getTitle() == null || blog.getTitle().trim().isEmpty()) {
+            return Result.fail("标题不能为空");
+        }
         // 获取登录用户
         UserDTO user = UserHolder.getUser();
         blog.setUserId(user.getId());
@@ -71,5 +78,17 @@ public class BlogController {
     @GetMapping("/likes/{id}")
     public Result queryBlogLikes(@PathVariable("id") Long id) {
         return blogService.queryBlogLikes(id);
+    }
+
+    @GetMapping("/of/user")
+    public Result queryBlogByUserId(
+            @RequestParam(value = "current", defaultValue = "1") Integer current,
+            @RequestParam("id") Long id) {
+        // 根据用户查询
+        Page<Blog> page = blogService.query()
+                .eq("user_id", id).page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));
+        // 获取当前页数据
+        List<Blog> records = page.getRecords();
+        return Result.ok(records);
     }
 }
