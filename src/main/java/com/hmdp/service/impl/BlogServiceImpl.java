@@ -145,7 +145,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         //3 查询用户信息
         List<UserDTO> userDTOS = userService.query()
                 .in("id", ids)
-                .last("ORDER BY FILED(id," + idStr + ")").list()
+                .last("ORDER BY FIELD(id," + idStr + ")").list()
                 .stream()
                 .map(user -> BeanUtil.copyProperties(user, UserDTO.class))
                 .collect(Collectors.toList());
