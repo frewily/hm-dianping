@@ -1,6 +1,8 @@
 package com.hmdp.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.BooleanUtil;
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
@@ -10,13 +12,18 @@ import com.hmdp.mapper.BlogMapper;
 import com.hmdp.service.IBlogService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.service.IUserService;
+import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * <p>
@@ -83,9 +90,9 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         Long userId = user.getId();
         //2 判断当前用户是否已经点赞
         String key = "blog:liked:" + blog.getId();
-        Boolean isMember = stringRedisTemplate.opsForSet().isMember(key, userId.toString());
+        Double score = stringRedisTemplate.opsForZSet().score(key, userId.toString());
         //3 设置值
-        blog.setIsLike(BooleanUtil.isTrue(isMember));
+        blog.setIsLike(score != null);
     }
 
     @Override
@@ -93,26 +100,68 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         //1 获取用户
         Long userId = UserHolder.getUser().getId();
         //2 判断当前用户是否已经点赞
-        String key = "blog:liked:" + id;
-        Boolean isMember = stringRedisTemplate.opsForSet().isMember(key, userId.toString());
+        String key = RedisConstants.BLOG_LIKED_KEY + id;
+        Double score = stringRedisTemplate.opsForZSet().score(key, userId.toString());
         //3 如果未点赞，可以点赞
-        if (BooleanUtil.isFalse(isMember)) {
+        if (score == null) {
             //3.1 数据库点赞数加1
             boolean isSuccess = update().setSql("liked = liked + 1").eq("id", id).update();
-            //3.2 保存用户点赞信息到redis的set集合中
+            //3.2 保存用户点赞信息到redis的ZSet集合中
             if (isSuccess) {
-                stringRedisTemplate.opsForSet().add(key, userId.toString());
+                stringRedisTemplate.opsForZSet().add(key, userId.toString(), System.currentTimeMillis());
+                //用时间戳表示分数，进行点赞排序
             }
         }else{
             //4 如果已经点赞，取消点赞
-            boolean isSuccess = update().setSql("liked = liked - 1").eq("id", id).update();
-            //4.1 数据库点赞数减1
+            boolean isSuccess = update().setSql("liked = liked - 1").eq("id", id).gt("liked", 0).update();
             if (isSuccess) {
-                stringRedisTemplate.opsForSet().remove(key, userId.toString());
+                //4.1 移除redis中用户点赞信息
+                stringRedisTemplate.opsForZSet().remove(key, userId.toString());
             }
-            //4.2 移除redis中用户点赞信息
-            stringRedisTemplate.opsForSet().remove(key, userId.toString());
         }
         return Result.ok();
+    }
+
+    @Override
+    public Result queryBlogLikes(Long id) {
+        String key = RedisConstants.BLOG_LIKED_KEY + id;
+        //1 查询top5的点赞用户
+        Set<String> top5 = stringRedisTemplate.opsForZSet().range(key, 0, 4);
+        if (top5 == null || top5.isEmpty()) {
+            return Result.ok(Collections.emptyList());
+        }
+        //2 解析出其中的用户id
+        List<Long> ids = top5.stream().map(Long::valueOf).collect(Collectors.toList());
+        /**
+         * .map(Long::valueOf)
+         * map 是转换操作，对流中的每个元素进行处理
+         * Long::valueOf 是方法引用，等同于 s -> Long.valueOf(s)
+         * 作用：将每个字符串类型的ID（如 "123"）转换为 Long 类型（如 123L）
+         * .collect(Collectors.toList())
+         * 将处理后的流收集成一个 List
+         * 最终得到 List<Long> 类型的用户ID列表
+         */
+        String idStr = StrUtil.join(",", ids);
+        //3 查询用户信息
+        List<UserDTO> userDTOS = userService.query()
+                .in("id", ids)
+                .last("ORDER BY FILED(id," + idStr + ")").list()
+                .stream()
+                .map(user -> BeanUtil.copyProperties(user, UserDTO.class))
+                .collect(Collectors.toList());
+        /**
+         * .stream()
+         * 将查询结果转换成流，方便进行链式操作
+         * .map(user -> BeanUtil.copyProperties(user, UserDTO.class))
+         * map 对流中的每个 User 对象进行转换
+         * BeanUtil.copyProperties(user, UserDTO.class) 是 Hutool 工具类的方法
+         * 作用： 将 User 对象的属性复制到 UserDTO 对象中
+         * 这是一个对象转换操作，从数据库实体转换为数据传输对象
+         * .collect(Collectors.toList())
+         * 将转换后的流收集成 List
+         * 最终得到 List<UserDTO> 类型
+         */
+        //4 返回用户信息
+        return Result.ok(userDTOS);
     }
 }
