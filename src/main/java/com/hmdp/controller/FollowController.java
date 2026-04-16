@@ -34,4 +34,10 @@ public class FollowController {
         return followService.isFollow(followUserId);
     }
 
+    // 查询共同关注
+    @GetMapping("/common/{id}")
+    public Result common(@PathVariable Long id) {
+        return followService.common(id);
+    }
+
 }
