@@ -29,4 +29,10 @@ public interface IUserService extends IService<User> {
      * @param loginForm 登录参数，包含手机号、验证码；或者手机号、密码
      */
     Result login(LoginFormDTO loginForm, HttpSession session);
+
+    /**
+     * 签到功能
+     * @return 签到结果
+     */
+    Result sign();
 }

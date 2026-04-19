@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import javax.annotation.Resource;
 import java.time.Duration;
 import java.util.Collections;
@@ -68,11 +69,32 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     //创建线程池
     private static final ExecutorService SECKILL_ORDER_EXECUTOR = Executors.newSingleThreadExecutor();
 
+    // 用于控制线程停止的volatile标志
+    private volatile boolean isRunning = true;
+
     private IVoucherOrderService proxy;
 
     @PostConstruct//表示该方法启动时执行
     private void init(){
         SECKILL_ORDER_EXECUTOR.submit(new VoucherOrderHandler());
+    }
+
+    @PreDestroy
+    public void destroy() {
+        // 设置停止标志
+        isRunning = false;
+        // 关闭线程池
+        SECKILL_ORDER_EXECUTOR.shutdown();
+        try {
+            // 等待60秒让线程正常结束
+            if (!SECKILL_ORDER_EXECUTOR.awaitTermination(60, java.util.concurrent.TimeUnit.SECONDS)) {
+                // 如果超时，强制关闭
+                SECKILL_ORDER_EXECUTOR.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            SECKILL_ORDER_EXECUTOR.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     private class VoucherOrderHandler implements Runnable {
